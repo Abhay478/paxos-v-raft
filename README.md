@@ -1,0 +1,7 @@
+- src
+  - bin
+    - paxos: Paxos node setup
+    - raft: Raft node setup
+  - paxos: Paxos implementation
+  - raft: Raft implementation
+  - lib.rs: Module root
