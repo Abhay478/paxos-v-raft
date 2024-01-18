@@ -89,7 +89,7 @@ pub enum Message {
     Phase1a(usize, Ballot),                       // acceptor id
     Phase1b(usize, usize, Ballot, Vec<Proposal>), // leader id, acceptor id,
     Phase2a(usize, Proposal),                     // leader id
-    Phase2b(usize, usize, Proposal),              // leader id, acceptor id
+    Phase2b(usize, usize, Ballot),              // leader id, acceptor id
 }
 
 

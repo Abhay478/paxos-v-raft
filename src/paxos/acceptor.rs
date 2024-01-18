@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 use std::{
-    fmt::Debug,
     net::UdpSocket,
     sync::{Arc, Mutex},
 };
@@ -55,11 +54,11 @@ impl Acceptor {
 
     fn receive_accept_request(&mut self, req: Message) -> Message {
         let u = self.ballot.lock().unwrap();
-        if let Message::Phase2a(num, proposal) = req {
+        if let Message::Phase2a(leader_id, proposal) = req {
             if proposal.ballot == *u {
                 self.accepted.lock().unwrap().push(proposal.clone());
             }
-            Message::Phase2b(num, self.id, proposal)
+            Message::Phase2b(leader_id, self.id, proposal.ballot)
         } else {
             unreachable!()
         }
@@ -74,7 +73,7 @@ impl Acceptor {
     }
 }
 
-pub fn listen<T: Clone + Debug + serde::de::DeserializeOwned + serde::Serialize>(
+pub fn listen(
     id: usize,
     sock: UdpSocket,
 ) {

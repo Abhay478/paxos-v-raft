@@ -113,9 +113,7 @@ impl Replica {
     }
 }
 
-fn listen<
-    T: Clone + Debug + serde::de::DeserializeOwned + serde::Serialize + Send + Sync + Copy + 'static,
->(
+fn listen(
     id: usize,
     sock: UdpSocket,
 ) {
