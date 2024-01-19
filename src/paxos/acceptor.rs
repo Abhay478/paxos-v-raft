@@ -73,10 +73,7 @@ impl Acceptor {
     }
 }
 
-pub fn listen(
-    id: usize,
-    sock: UdpSocket,
-) {
+pub fn listen(id: usize, sock: UdpSocket) {
     let mut q = Acceptor::new(id, sock);
     // let mut log = vec![];
     loop {

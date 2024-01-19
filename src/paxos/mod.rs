@@ -1,10 +1,9 @@
 //! Achieve consensus on a sequence of Strings using the Paxos algorithm.
 
-
-pub mod replica;
-pub mod leader;
 pub mod acceptor;
 pub mod dir;
+pub mod leader;
+pub mod replica;
 
 use std::fmt::Debug;
 
@@ -89,7 +88,8 @@ pub enum Message {
     Phase1a(usize, Ballot),                       // acceptor id
     Phase1b(usize, usize, Ballot, Vec<Proposal>), // leader id, acceptor id,
     Phase2a(usize, Proposal),                     // leader id
-    Phase2b(usize, usize, Ballot),              // leader id, acceptor id
+    Phase2b(usize, usize, Ballot),                // leader id, acceptor id
+
+    // Special
+    Terminate,
 }
-
-

@@ -1,13 +1,14 @@
 #![allow(dead_code)]
+use self::dir::get_all_leaders;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec};
-use uuid::Uuid;
 use std::{
     collections::{BTreeMap, HashMap},
     fmt::Debug,
-    net::{SocketAddr, UdpSocket}, str::FromStr,
+    net::{SocketAddr, UdpSocket},
+    str::FromStr,
 };
-use self::dir::get_all_leaders;
+use uuid::Uuid;
 
 use super::*;
 // use uuid::Uuid;
@@ -43,8 +44,8 @@ pub struct Replica {
     slot_in: usize,
     slot_out: usize,
     requests: HashMap<Uuid, Op>, // All requests ever
-    pending: Vec<Uuid>, // Remove from here each time you propose
-    proposals: Vec<Option<Uuid>>, 
+    pending: Vec<Uuid>,          // Remove from here each time you propose
+    proposals: Vec<Option<Uuid>>,
     decisions: Vec<Option<Uuid>>,
     leaders: Vec<SocketAddr>,
     sock: UdpSocket,
@@ -113,10 +114,7 @@ impl Replica {
     }
 }
 
-fn listen(
-    id: usize,
-    sock: UdpSocket,
-) {
+fn listen(id: usize, sock: UdpSocket) {
     let leaders = get_all_leaders();
     let mut rep = Replica::new(id, ReplicaState::default(), leaders, sock);
     loop {
