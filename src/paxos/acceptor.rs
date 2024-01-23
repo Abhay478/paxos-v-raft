@@ -12,8 +12,9 @@ use crate::paxos::{Ballot, Message, Proposal};
 type AcceptList = Arc<Mutex<Vec<Proposal>>>;
 struct Acceptor {
     pub id: usize,
-    pub ballot: Arc<Mutex<Ballot>>,
-    pub accepted: AcceptList,
+    // pub ballot: Arc<Mutex<Ballot>>,
+    pub ballot: Ballot,
+    pub accepted: Vec<Proposal>,
     pub sock: UdpSocket,
     buf: Vec<u8>,
 }
@@ -22,8 +23,10 @@ impl Acceptor {
     pub fn new(id: usize, sock: UdpSocket) -> Acceptor {
         Acceptor {
             id,
-            ballot: Arc::new(Mutex::new(Ballot::new(0, 0))),
-            accepted: Arc::new(Mutex::new(Vec::new())),
+            // ballot: Arc::new(Mutex::new(Ballot::new(0, 0))),
+            ballot: Ballot::new(0, 0),
+            // accepted: Arc::new(Mutex::new(Vec::new())),
+            accepted: vec![],
             sock,
             buf: vec![],
         }
@@ -31,43 +34,43 @@ impl Acceptor {
 
     fn get_latest_accepts(&self) -> Vec<Proposal> {
         self.accepted
-            .lock()
-            .unwrap()
+            // .lock()
+            // .unwrap()
             .iter()
             .max_set()
             .into_iter()
-            .map(|a| a.clone())
+            .cloned()
             .collect()
     }
 
-    fn receive_prepare(&mut self, req: Message) -> Message {
-        let mut u = self.ballot.lock().unwrap();
-        if let Message::Phase1a(_num, ballot) = req {
-            if ballot > *u {
-                *u = ballot;
+    fn receive_p1(&mut self, ballot: Ballot) -> Message {
+        // let mut u = self.ballot.lock().unwrap();
+        // if let Message::Phase1a(_num, ballot) = req {
+            if ballot > self.ballot {
+                self.ballot = ballot;
             }
-            Message::Phase1b(ballot.leader_id, self.id, *u, self.get_latest_accepts())
-        } else {
-            unreachable!()
-        }
+            Message::Phase1b(ballot.leader_id, self.id, self.ballot, self.get_latest_accepts())
+        // } else {
+        //     unreachable!()
+        // }
     }
 
-    fn receive_accept_request(&mut self, req: Message) -> Message {
-        let u = self.ballot.lock().unwrap();
-        if let Message::Phase2a(leader_id, proposal) = req {
-            if proposal.ballot == *u {
-                self.accepted.lock().unwrap().push(proposal.clone());
+    fn receive_p2(&mut self, leader_id: usize, proposal: Proposal) -> Message {
+        // let u = self.ballot.lock().unwrap();
+        // if let Message::Phase2a(leader_id, proposal) = req {
+            if proposal.ballot == self.ballot {
+                self.accepted.push(proposal.clone());
             }
             Message::Phase2b(leader_id, self.id, proposal.ballot)
-        } else {
-            unreachable!()
-        }
+        // } else {
+        //     unreachable!()
+        // }
     }
 
     fn handle(&mut self, req: Message) -> Message {
         match req {
-            Message::Phase1a(_, _) => self.receive_prepare(req),
-            Message::Phase2a(_, _) => self.receive_accept_request(req),
+            Message::Phase1a(_num, ballot) => self.receive_p1(ballot),
+            Message::Phase2a(lid, prop) => self.receive_p2(lid, prop),
             _ => unreachable!(),
         }
     }

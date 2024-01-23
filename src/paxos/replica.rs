@@ -3,20 +3,11 @@ use self::dir::get_all_leaders;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec};
 use std::{
-    collections::{BTreeMap, HashMap},
-    fmt::Debug,
-    net::{SocketAddr, UdpSocket},
-    str::FromStr,
+    collections::BTreeMap, net::{SocketAddr, UdpSocket}
 };
-use uuid::Uuid;
+use hashbrown::HashMap;
 
 use super::*;
-// use uuid::Uuid;
-
-// use crate::{
-//     dir::get_all_leaders,
-//     models::{Command, Message},
-// };
 
 const WINDOW: usize = 32;
 
@@ -24,11 +15,19 @@ const WINDOW: usize = 32;
 pub struct ReplicaState {
     n: usize,
 }
+
+impl ReplicaState {
+    pub fn triv(s: String) -> impl Fn (&ReplicaState) -> (ReplicaState, Result<String, String>) {
+        move |q| (*q, Ok(s.clone()))
+    }
+}
 /// This can be something as simple as
 /// ```
-/// |q: ReplicaState| (q, Ok(1))
+/// |q: ReplicaState| (q, Ok(""))
 /// ```
 /// in which case we'd be storing constants and not operations.
+/// 
+/// The triv() function does just that.
 
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Op {
@@ -43,13 +42,13 @@ pub struct Replica {
     state: ReplicaState,
     slot_in: usize,
     slot_out: usize,
-    requests: HashMap<Uuid, Op>, // All requests ever
-    pending: Vec<Uuid>,          // Remove from here each time you propose
-    proposals: Vec<Option<Uuid>>,
-    decisions: Vec<Option<Uuid>>,
+    // requests: BTreeMap<Uuid, Command>,
+    requests: Vec<Command>,
+    proposals: BTreeMap<usize, Command>,
+    decisions: HashMap<usize, Command>,
     leaders: Vec<SocketAddr>,
     sock: UdpSocket,
-    clients: BTreeMap<usize, SocketAddr>,
+    clients: HashMap<usize, SocketAddr>,
 }
 
 impl Replica {
@@ -59,31 +58,25 @@ impl Replica {
             state: init,
             slot_in: 1,
             slot_out: 1,
-            requests: HashMap::new(),
-            pending: vec![],
-            proposals: vec![],
-            decisions: vec![],
+            requests: vec![],
+            proposals: BTreeMap::new(),
+            decisions: HashMap::new(),
             leaders,
             sock,
-            clients: BTreeMap::new(),
+            clients: HashMap::new(),
         }
     }
 
     fn propose(&mut self) {
-        while self.slot_in < self.slot_out + WINDOW && !self.pending.is_empty() {
-            if self.decisions.get(self.slot_in).is_none() {
-                let c = self.pending.pop().unwrap();
-                let c = (c, self.requests.get(&c).unwrap());
+        while self.slot_in < self.slot_out + WINDOW && !self.requests.is_empty() {
+            if self.decisions.get(&self.slot_in).is_none() {
+                let c = self.requests.pop().unwrap();
+                self.proposals.insert(self.slot_in, c.clone());
                 let msg = Message::Propose(
                     self.slot_in,
-                    Command {
-                        client_id: c.1.client_id,
-                        op_id: c.1.op_id,
-                        op: c.0.to_string(),
-                    },
+                    c,
                 );
-                // self.proposals.insert(self.slot_in, c.0);
-                self.proposals[self.slot_in] = Some(c.0);
+                // self.proposals[&self.slot_in] = c;
                 let buf = to_vec(&msg).unwrap();
 
                 self.leaders.iter().for_each(|addr| {
@@ -94,14 +87,22 @@ impl Replica {
         }
     }
 
-    fn perform(&mut self, op: Uuid) {
-        if self.decisions.contains(&Some(op)) {
-            self.slot_out += 1;
-            return;
-        }
-        let op = self.requests.get(&op).unwrap();
+    fn perform(&mut self, op: Command) {
+        /* 
+            NOTE:
+            - Pseudoocode has this particular if block so as to avoid duplicate executions in case one command is decided at multiple slots. 
+            - Since all replicas have the same sequence of decisions, this is merely an optimisation.
+            - We contend that a command may mutate some external state, and hence is not idempotent.
+            - Thus, this block has been commented out.
+        */
+
+        // if self.decisions.contains(&Some(op)) {
+        //     self.slot_out += 1;
+        //     return;
+        // }
+
         let addr = self.clients.get(&op.client_id).unwrap();
-        let (state, res) = (op.op)(&self.state);
+        let (state, res) = ReplicaState::triv(op.op)(&self.state);
         // For some reason, this should be atomic, but since we're not using threads, it's fine.
         {
             // let _un = self.lock.lock().unwrap();
@@ -124,29 +125,18 @@ fn listen(id: usize, sock: UdpSocket) {
         match msg {
             Message::Request(c) => {
                 let c = c.clone();
-                let op = Op {
-                    client_id: c.client_id,
-                    op_id: c.op_id,
-                    op: Box::new(move |q| {
-                        let q = ReplicaState { n: q.n + 1 };
-                        (q, Ok(c.op.clone())) // CLONE!!
-                    }),
-                };
-                rep.requests.insert(Uuid::new_v4(), op);
-                rep.clients.insert(c.client_id, src);
+                let _ = rep.clients.try_insert(c.client_id, src);
+                rep.requests.push(c);
             }
             Message::Decision(slot, command) => {
-                if slot > rep.decisions.len() {
-                    rep.decisions.resize(slot, None);
-                }
-                rep.decisions[slot] = Some(Uuid::from_str(&command.op).unwrap());
-                while let Some(c1) = rep.decisions[rep.slot_out] {
-                    if let Some(c2) = rep.proposals.remove(rep.slot_out) {
-                        if c2 != c1 {
-                            rep.pending.push(c2);
+                rep.decisions.insert(slot, command);
+                while let Some(c1) = rep.decisions.get(&rep.slot_out) {
+                    if let Some(c2) = rep.proposals.remove(&rep.slot_out) {
+                        if c2 != *c1 {
+                            rep.requests.push(c2);
                         }
                     }
-                    rep.perform(c1);
+                    rep.perform(c1.clone()); // GAH, CLONES!
                 }
             }
             _ => unreachable!(),
