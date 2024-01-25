@@ -13,7 +13,10 @@ use tokio::net::UdpSocket;
 
 use serde_json::to_vec;
 
-use super::{Ballot, Message, Proposal};
+use super::{
+    dir::{get_all_acceptors, get_all_replicas},
+    Ballot, Message, Proposal,
+};
 
 pub enum Agent {
     Committed,
@@ -180,8 +183,8 @@ fn async_block(
 pub async fn listen(id: usize, sock: UdpSocket) {
     let arc_sock = Arc::new(sock);
 
-    let acceptors = Arc::new(vec![]);
-    let replicas = Arc::new(vec![]);
+    let acceptors = Arc::new(get_all_acceptors());
+    let replicas = Arc::new(get_all_replicas());
 
     let mut leader = Leader::new(id);
 
@@ -208,7 +211,7 @@ pub async fn listen(id: usize, sock: UdpSocket) {
                     let pmax = get_pmax(&pvals);
                     leader.update(pmax);
 
-                    // This is bad. Too many clones.
+                    // This is bad. Too many clones. That said, it is Arc, so maybe we can get away with it.
                     for (_s, p) in leader.proposals.iter() {
                         let alt_sock = arc_sock.clone();
                         let new_acc = acceptors.clone();
@@ -228,7 +231,7 @@ pub async fn listen(id: usize, sock: UdpSocket) {
                         leader.active = false;
                         leader.ballot.num = blt.num + 1;
                         ballot_tx.send(leader.ballot).unwrap();
-                    } 
+                    }
                 }
                 Agent::Committed => {}
             }

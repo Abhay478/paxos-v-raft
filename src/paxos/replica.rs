@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 use self::dir::get_all_leaders;
+use hashbrown::HashMap;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec};
 use std::{
-    collections::BTreeMap, net::{SocketAddr, UdpSocket}
+    collections::BTreeMap,
+    net::{SocketAddr, UdpSocket},
 };
-use hashbrown::HashMap;
 
 use super::*;
 
@@ -17,7 +18,7 @@ pub struct ReplicaState {
 }
 
 impl ReplicaState {
-    pub fn triv(s: String) -> impl Fn (&ReplicaState) -> (ReplicaState, Result<String, String>) {
+    pub fn triv(s: String) -> impl Fn(&ReplicaState) -> (ReplicaState, Result<String, String>) {
         move |q| (*q, Ok(s.clone()))
     }
 }
@@ -26,7 +27,7 @@ impl ReplicaState {
 /// |q: ReplicaState| (q, Ok(""))
 /// ```
 /// in which case we'd be storing constants and not operations.
-/// 
+///
 /// The triv() function does just that.
 
 // #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -72,10 +73,7 @@ impl Replica {
             if self.decisions.get(&self.slot_in).is_none() {
                 let c = self.requests.pop().unwrap();
                 self.proposals.insert(self.slot_in, c.clone());
-                let msg = Message::Propose(
-                    self.slot_in,
-                    c,
-                );
+                let msg = Message::Propose(self.slot_in, c);
                 // self.proposals[&self.slot_in] = c;
                 let buf = to_vec(&msg).unwrap();
 
@@ -88,9 +86,9 @@ impl Replica {
     }
 
     fn perform(&mut self, op: Command) {
-        /* 
+        /*
             NOTE:
-            - Pseudoocode has this particular if block so as to avoid duplicate executions in case one command is decided at multiple slots. 
+            - Pseudoocode has this particular if block so as to avoid duplicate executions in case one command is decided at multiple slots.
             - Since all replicas have the same sequence of decisions, this is merely an optimisation.
             - We contend that a command may mutate some external state, and hence is not idempotent.
             - Thus, this block has been commented out.

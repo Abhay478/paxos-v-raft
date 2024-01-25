@@ -46,10 +46,15 @@ impl Acceptor {
     fn receive_p1(&mut self, ballot: Ballot) -> Message {
         // let mut u = self.ballot.lock().unwrap();
         // if let Message::Phase1a(_num, ballot) = req {
-            if ballot > self.ballot {
-                self.ballot = ballot;
-            }
-            Message::Phase1b(ballot.leader_id, self.id, self.ballot, self.get_latest_accepts())
+        if ballot > self.ballot {
+            self.ballot = ballot;
+        }
+        Message::Phase1b(
+            ballot.leader_id,
+            self.id,
+            self.ballot,
+            self.get_latest_accepts(),
+        )
         // } else {
         //     unreachable!()
         // }
@@ -58,10 +63,10 @@ impl Acceptor {
     fn receive_p2(&mut self, leader_id: usize, proposal: Proposal) -> Message {
         // let u = self.ballot.lock().unwrap();
         // if let Message::Phase2a(leader_id, proposal) = req {
-            if proposal.ballot == self.ballot {
-                self.accepted.push(proposal.clone());
-            }
-            Message::Phase2b(leader_id, self.id, proposal.ballot)
+        if proposal.ballot == self.ballot {
+            self.accepted.push(proposal.clone());
+        }
+        Message::Phase2b(leader_id, self.id, proposal.ballot)
         // } else {
         //     unreachable!()
         // }
