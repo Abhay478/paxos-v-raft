@@ -10,7 +10,7 @@ use serde_json::{from_slice, to_vec};
 use crate::paxos::{Ballot, Message, Proposal};
 
 type AcceptList = Arc<Mutex<Vec<Proposal>>>;
-struct Acceptor {
+pub struct Acceptor {
     pub id: usize,
     // pub ballot: Arc<Mutex<Ballot>>,
     pub ballot: Ballot,
