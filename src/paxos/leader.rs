@@ -18,6 +18,8 @@ use super::{
     Ballot, Message, Proposal,
 };
 
+/// 'Return type' of a Scout or Commander thread. 
+/// Sent through a channel to the main thread.
 pub enum Agent {
     Committed,
     Adopted(Ballot, HashMap<usize, Vec<Proposal>>),
@@ -52,6 +54,7 @@ impl Agent {
             match msg {
                 Message::Phase2b(_back_lid, _acc_id, blt) => {
                     if blt == prop.ballot {
+                        // Using retain coz remove wants the index.
                         waitfor.retain(|x| *x != addr);
 
                         if waitfor.len() < acceptors.len() / 2 {
@@ -61,7 +64,6 @@ impl Agent {
                             for rep in replicas.iter() {
                                 sock.send_to(&to_vec(&rep_msg).unwrap(), rep).await.unwrap();
                             }
-                            // return Self::Committed;
                             agent_tx.send(Self::Committed).unwrap();
                             return;
                         }
@@ -125,10 +127,15 @@ impl Agent {
     }
 }
 
+/// Leader struct. Most of the action happens here.
 pub struct Leader {
+    /// Just a lil number. Unique among all leaders.
     id: usize,
+    //// Set of all outstanding proposals.
     proposals: HashMap<usize, Proposal>,
+    /// State of the scout. 
     active: bool,
+    /// Current ballot.
     ballot: Ballot,
 }
 
@@ -153,7 +160,7 @@ impl Leader {
 }
 
 pub fn get_pmax(pvals: &HashMap<usize, Vec<Proposal>>) -> HashMap<usize, Proposal> {
-    let pmax = pvals
+    pvals
         .into_iter()
         .map(|(slot, prop)| {
             (
@@ -164,10 +171,10 @@ pub fn get_pmax(pvals: &HashMap<usize, Vec<Proposal>>) -> HashMap<usize, Proposa
                     .clone(),
             )
         })
-        .collect::<HashMap<usize, Proposal>>();
-    pmax
+        .collect::<HashMap<usize, Proposal>>()
 }
 
+/// This needs to be a separate function coz of Rust types. It's really just a block.
 fn async_block(
     prop: Proposal,
     acceptors: Arc<Vec<SocketAddr>>,
@@ -203,7 +210,9 @@ pub async fn listen(id: usize, sock: UdpSocket) {
         Agent::init_scout(leader.id, ballot_rx, new_tx, new_acc, alt_sock).await;
     }); // Sus
 
+    // TODO: THERE ARE BUGS IN THIS LOOP. probably.
     loop {
+        // Anything we get from the agents. They communicate with the acceptors.
         if let Ok(out) = agent_rx.try_recv() {
             match out {
                 Agent::Adopted(blt, pvals) => {
@@ -230,13 +239,15 @@ pub async fn listen(id: usize, sock: UdpSocket) {
                     if blt > leader.ballot {
                         leader.active = false;
                         leader.ballot.num = blt.num + 1;
+                        // Pseudocode restarts the thread here. We just update the ballot. Message passing cheaper than spawning.
                         ballot_tx.send(leader.ballot).unwrap();
                     }
                 }
-                Agent::Committed => {}
+                Agent::Committed => {} // Not given. WTF.
             }
         }
 
+        // Anything we get from the replicas.
         let mut buf = vec![0; 1024];
         if let Ok((len, _addr)) = arc_sock.recv_from(&mut buf).await {
             let alt_sock = arc_sock.clone(); // We need a new one.
@@ -245,6 +256,7 @@ pub async fn listen(id: usize, sock: UdpSocket) {
             match msg {
                 Message::Propose(slot, cmd) => {
                     if let Some(_) = leader.proposals.get(&slot) {
+                        // Proposal is lost here. Correctness check.
                         continue;
                     }
 
