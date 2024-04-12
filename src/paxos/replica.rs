@@ -33,16 +33,16 @@ impl ReplicaState {
 /// The triv() function does just that.
 pub struct Op {
     /// Change to SocketAddr?
-    client_id: usize, 
+    client_id: usize,
     /// Sequence number.
-    op_id: usize, 
+    op_id: usize,
     /// The operation to be performed.
     op: Box<dyn Fn(&ReplicaState) -> (ReplicaState, Result<String, String>) + Send + Sync>,
 }
 
 /// Node struct.
 pub struct Replica {
-    /// Just a lil number. Unique among all replicas. 
+    /// Just a lil number. Unique among all replicas.
     id: usize,
     /// Eh, just some state.
     state: ReplicaState,
@@ -67,7 +67,7 @@ pub struct Replica {
 }
 
 impl Replica {
-    fn new(id: usize, leaders: Vec<SocketAddr>, sock: UdpSocket) -> Self {
+    pub fn new(id: usize, leaders: Vec<SocketAddr>, sock: UdpSocket) -> Self {
         Self {
             id,
             state: ReplicaState::default(),
@@ -83,7 +83,7 @@ impl Replica {
     }
 
     /// Self explanatory name.
-    /// 
+    ///
     /// Each proposal is removed from `requests`, topped off with a slot, and sent to all leaders.
     /// This is done for multiple requests, each getting a different slot.
     fn propose(&mut self) {
@@ -92,9 +92,9 @@ impl Replica {
                 let c = self.requests.pop().unwrap(); // do this
                 self.proposals.insert(self.slot_in, c.clone()); // and then do that
                 let msg = Message::Propose(self.slot_in, c); // And the this.
-                
+
                 // self.proposals[&self.slot_in] = c;
-                
+
                 let buf = to_vec(&msg).unwrap();
 
                 // Now send the bloody thing
@@ -134,20 +134,20 @@ impl Replica {
         }
         // TODO: Change the contents of Message::Response, maybe. Don't think String is enough.
         let msg = Message::Response(op.op_id, "Hello there".to_string(), res);
-        
+
         let buf = to_vec(&msg).unwrap();
         self.sock.send_to(&buf, addr).unwrap();
     }
 }
 
 /// This is the main loop for the replica. It listens for messages from the leaders and clients.
-fn listen(id: usize, sock: UdpSocket) {
+pub fn listen(id: usize, sock: UdpSocket) {
     let leaders = get_all_leaders();
     let mut rep = Replica::new(id, leaders, sock);
     loop {
         let mut buf = vec![];
         let (l, src) = rep.sock.recv_from(&mut buf).unwrap();
-        
+
         // Verify that only **ONE** message is received.
         let msg = from_slice::<Message>(&buf[..l]).unwrap();
         match msg {

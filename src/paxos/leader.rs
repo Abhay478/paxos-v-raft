@@ -18,7 +18,7 @@ use super::{
     Ballot, Message, Proposal,
 };
 
-/// 'Return type' of a Scout or Commander thread. 
+/// 'Return type' of a Scout or Commander thread.
 /// Sent through a channel to the main thread.
 pub enum Agent {
     Committed,
@@ -133,7 +133,7 @@ pub struct Leader {
     id: usize,
     //// Set of all outstanding proposals.
     proposals: HashMap<usize, Proposal>,
-    /// State of the scout. 
+    /// State of the scout.
     active: bool,
     /// Current ballot.
     ballot: Ballot,

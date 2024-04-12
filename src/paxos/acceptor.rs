@@ -16,14 +16,13 @@ struct Acceptor {
     /// Just a lil number. Unique among all acceptors.
     pub id: usize,
     // pub ballot: Arc<Mutex<Ballot>>,
-
     /// The current ballot number of the acceptor. Important thing.
     pub ballot: Ballot,
 
-    /// All the stuff so far. 
+    /// All the stuff so far.
     /// TODO: Should this be a map?
     pub accepted: Vec<Proposal>,
-    
+
     /// This is us.
     pub sock: UdpSocket,
     buf: Vec<u8>,
@@ -83,16 +82,15 @@ impl Acceptor {
     }
 }
 
-/// This is the main loop for the acceptor. 
+/// This is the main loop for the acceptor.
 /// Acceptors are pretty dumb, so there's not much going on here.
 pub fn listen(id: usize, sock: UdpSocket) {
     let mut q = Acceptor::new(id, sock);
-    // let mut log = vec![];
+    let mut buf = vec![];
     loop {
-        let mut b = vec![];
-        let (l, src) = q.sock.recv_from(&mut b).unwrap();
+        let (l, src) = q.sock.recv_from(&mut buf).unwrap();
 
-        let res = if let Ok(req) = from_slice(&b[..l]) {
+        let res = if let Ok(req) = from_slice(&buf[..l]) {
             to_vec(&q.handle(req)).unwrap()
         } else {
             "Invalid message.".as_bytes().to_vec()

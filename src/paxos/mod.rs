@@ -28,17 +28,6 @@ pub struct Command {
     pub op: String, // Small
 }
 
-// impl Command {
-//     pub fn get_uuid
-// }
-
-// #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-// pub struct ClientRequest {
-//     pub client_id: usize,
-//     pub op_id: usize,
-//     pub op: String, // Big. Can be an entire file, for example.
-// }
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Proposal {
     pub slot: usize,
