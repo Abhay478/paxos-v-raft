@@ -18,18 +18,17 @@ use dc_project::{
 use rand::seq::SliceRandom;
 use serde_json::to_vec;
 
-
 /// ```sh
 /// cargo run --bin client -- (client_id)
 /// ```
-/// 
+///
 /// Right now only written for Paxos.
 fn main() {
     let params = Params::new();
-    let reps = get_all_replicas();
+    let (handler, _listener) = client_init();
+    let reps = get_all_replicas(handler.clone());
     let rep = reps.choose(&mut rand::thread_rng()).unwrap();
     println!("Sending to {:?}", rep);
-    let sock = client_init().unwrap();
     let client_id = env::args().nth(1).unwrap().parse::<usize>().unwrap();
     let u = rand::distributions::Uniform::from(0.0..1.0);
     for i in 0..params.k {
@@ -39,9 +38,13 @@ fn main() {
             op_id: i,
             op: val.to_string(),
         });
-        sock.send_to(&to_vec(&msg).unwrap(), rep).unwrap();
+        handler.network().send(*rep, &to_vec(&msg).unwrap());
         params.sleep(u, &mut rand::thread_rng());
     }
     // sock.send_to(&to_vec(&Message::Terminate).unwrap(), rep);
+    // handler
+        // .network()
+        // .send(*rep, &to_vec(&Message::Terminate).unwrap());
     // todo!()
+    println!("Done.");
 }

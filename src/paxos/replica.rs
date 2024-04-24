@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 use self::dir::get_all_leaders;
 use hashbrown::HashMap;
+use message_io::{
+    network::{Endpoint, NetEvent},
+    node::{NodeHandler, NodeListener},
+};
 use serde_derive::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec}; // Might have to change this to bincode or a custom impl.
-use std::{
-    collections::BTreeMap,
-    net::{SocketAddr, UdpSocket},
-};
+use std::collections::BTreeMap;
 
 use super::*;
 
@@ -57,27 +58,29 @@ pub struct Replica {
     decisions: HashMap<usize, Command>,
 
     /// These are the guys you gotta talk to.
-    leaders: Vec<SocketAddr>,
+    leaders: Vec<Endpoint>,
 
     /// This is us.
-    sock: UdpSocket,
+    // sock: UdpSocket,
+    // listener: NodeListener<()>,
+    handler: NodeHandler<()>,
 
     /// These are those icky clients that keep bothering us.
-    clients: HashMap<usize, SocketAddr>,
+    clients: HashMap<usize, Endpoint>,
 }
 
 impl Replica {
-    pub fn new(id: usize, leaders: Vec<SocketAddr>, sock: UdpSocket) -> Self {
+    pub fn new(id: usize, leaders: Vec<Endpoint>, handler: NodeHandler<()>) -> Self {
         Self {
             id,
             state: ReplicaState::default(),
-            slot_in: 1,
-            slot_out: 1,
+            slot_in: 0,
+            slot_out: 0,
             requests: vec![],
             proposals: BTreeMap::new(),
             decisions: HashMap::new(),
             leaders,
-            sock,
+            handler,
             clients: HashMap::new(),
         }
     }
@@ -99,11 +102,12 @@ impl Replica {
 
                 // Now send the bloody thing
                 self.leaders.iter().for_each(|addr| {
-                    self.sock.send_to(&buf, addr).unwrap();
+                    self.handler.network().send(*addr, &buf);
                 });
             }
             self.slot_in += 1;
         }
+        println!("PROPOSE");
     }
 
     /// Simple pipeline.
@@ -112,7 +116,7 @@ impl Replica {
     fn perform(&mut self, op: Command) {
         /*
             NOTE:
-            - Pseudoocode has this particular if block so as to avoid duplicate executions in case one command is decided at multiple slots.
+            - Pseudocode has this particular if block so as to avoid duplicate executions in case one command is decided at multiple slots.
             - Since all replicas have the same sequence of decisions, this is merely an optimisation.
             - We contend that a command may mutate some external state, and hence is not idempotent.
             - Thus, this block has been commented out.
@@ -124,54 +128,103 @@ impl Replica {
         //     return;
         // }
 
-        let addr = self.clients.get(&op.client_id).unwrap();
+        // dbg!(&self.clients, &op);
+        let addr = self.clients.get(&op.client_id);
         let (state, res) = ReplicaState::triv(op.op)(&self.state);
         // For some reason, this should be atomic, but since we're not using threads, it's fine.
         {
             // let _un = self.lock.lock().unwrap();
             self.state = state;
             self.slot_out += 1;
+            
         }
-        // TODO: Change the contents of Message::Response, maybe. Don't think String is enough.
-        let msg = Message::Response(op.op_id, "Hello there".to_string(), res);
+        // dbg!("PERFORM");
 
-        let buf = to_vec(&msg).unwrap();
-        self.sock.send_to(&buf, addr).unwrap();
+        if let Some(addr) = addr {
+            // TODO: Change the contents of Message::Response, maybe. Don't think String is enough.
+            let msg = Message::Response(op.op_id, "Hello there".to_string(), res);
+    
+            let buf = to_vec(&msg).unwrap();
+            // self.sock.send_to(&buf, addr).unwrap();
+            self.handler.network().send(*addr, &buf);
+        }
     }
 }
 
 /// This is the main loop for the replica. It listens for messages from the leaders and clients.
-pub fn listen(id: usize, sock: UdpSocket) {
-    let leaders = get_all_leaders();
-    let mut rep = Replica::new(id, leaders, sock);
-    loop {
-        let mut buf = vec![];
-        let (l, src) = rep.sock.recv_from(&mut buf).unwrap();
+pub fn listen(id: usize, listener: NodeListener<()>, handler: NodeHandler<()>) {
+    let leaders = get_all_leaders(handler.clone());
+    let mut rep = Replica::new(id, leaders, handler);
+    /*     loop {
+           let mut buf = vec![];
+           let (l, src) = rep.sock.recv_from(&mut buf).unwrap();
 
-        // Verify that only **ONE** message is received.
-        let msg = from_slice::<Message>(&buf[..l]).unwrap();
-        match msg {
-            Message::Request(c) => {
-                let c = c.clone();
-                let _ = rep.clients.try_insert(c.client_id, src);
-                rep.requests.push(c);
-            }
-            Message::Decision(slot, command) => {
-                // Accept the consensus.
-                rep.decisions.insert(slot, command);
-                while let Some(c1) = rep.decisions.get(&rep.slot_out) {
-                    if let Some(c2) = rep.proposals.remove(&rep.slot_out) {
-                        if c2 != *c1 {
-                            rep.requests.push(c2);
-                        }
-                    }
+           // Verify that only **ONE** message is received.
+           let msg = from_slice::<Message>(&buf[..l]).unwrap();
+           match msg {
+               Message::Request(c) => {
+                   let c = c.clone();
+                   let _ = rep.clients.try_insert(c.client_id, src);
+                   rep.requests.push(c);
+               }
+               Message::Decision(slot, command) => {
+                   // Accept the consensus.
+                   rep.decisions.insert(slot, command);
+                   while let Some(c1) = rep.decisions.get(&rep.slot_out) {
+                       if let Some(c2) = rep.proposals.remove(&rep.slot_out) {
+                           if c2 != *c1 {
+                               rep.requests.push(c2);
+                           }
+                       }
 
-                    // Actually do the thing.
-                    rep.perform(c1.clone()); // GAH, CLONES!
+                       // Actually do the thing.
+                       rep.perform(c1.clone()); // GAH, CLONES!
+                   }
+               }
+               _ => unreachable!(), // It had better be, damn it.
+           }
+           rep.propose();
+       }
+    */
+    println!("Inited replica {id}.");
+    let _ = listener.for_each_async(move |event| match event.network() {
+        NetEvent::Message(endpoint, buf) => {
+            let msg = from_slice::<Message>(&buf).unwrap();
+            // dbg!(&msg);
+            match msg {
+                Message::Request(c) => {
+                    let c = c.clone();
+                    let _ = rep.clients.try_insert(c.client_id, endpoint);
+                    rep.requests.push(c);
+                    dbg!(&rep.requests);
                 }
+                Message::Decision(slot, command) => {
+                    // Accept the consensus.
+                    rep.decisions.insert(slot, command);
+                    while let Some(c1) = rep.decisions.get(&rep.slot_out) {
+                        if let Some(c2) = rep.proposals.remove(&rep.slot_out) {
+                            if c2 != *c1 {
+                                rep.requests.push(c2);
+                            }
+                        }
+
+                        // Actually do the thing.
+                        rep.perform(c1.clone()); // GAH, CLONES!
+                    }
+                    dbg!(&rep.decisions);
+                }
+                _ => unreachable!(), // It had better be, damn it.
             }
-            _ => unreachable!(), // It had better be, damn it.
+            rep.propose();
         }
-        rep.propose();
-    }
+        NetEvent::Connected(ep, _) => {
+            println!("Replica {id} Connected to {ep}.");
+        }
+        NetEvent::Accepted(ep, _) => {
+            println!("Replica {id} Accepted {ep}.");
+        }
+        NetEvent::Disconnected(ep) => {
+            println!("Replica {id} Disconnected from {ep}.");
+        }
+    });
 }

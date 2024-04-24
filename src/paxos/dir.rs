@@ -1,47 +1,146 @@
-use std::{
-    io,
-    net::{SocketAddr, UdpSocket},
+use std::net::SocketAddr;
+
+use message_io::{
+    network::{Endpoint, Transport},
+    node::{self, NodeHandler, NodeListener},
 };
 
-const LEADER_PORT: u16 = 8080;
-const REPLICA_PORT: u16 = 8081;
-const ACCEPTOR_PORT: u16 = 8082;
-const CLIENT_PORT: u16 = 8083;
+use super::{leader::Agent, Ballot};
 
-const LEADER_COUNT: u8 = 9;
-const REPLICA_COUNT: u8 = 9;
-const ACCEPTOR_COUNT: u8 = 9;
+pub const LEADER_PORT: u16 = 4000;
+pub const SCOUT_PORT: u16 = 4500;
+pub const COMMANDER_PORT: u16 = 5000;
+pub const REPLICA_PORT: u16 = 6000;
+pub const ACCEPTOR_PORT: u16 = 8000;
+pub const CLIENT_PORT: u16 = 9000;
 
-pub fn client_init() -> Result<UdpSocket, io::Error> {
-    UdpSocket::bind(format!("0.0.0.0:{CLIENT_PORT}").parse::<String>().unwrap())
+pub const LEADER_COUNT: u8 = 1;
+pub const REPLICA_COUNT: u8 = 3;
+pub const ACCEPTOR_COUNT: u8 = 3;
+
+const LOOPBACK: [u8; 4] = [127, 0, 0, 1];
+
+pub fn scout_init(acceptors: &Vec<Endpoint>) -> (NodeHandler<Ballot>, NodeListener<Ballot>) {
+    let (scout_h, scout_l) = node::split();
+    for a in acceptors.iter() {
+        scout_h.network().connect(Transport::Udp, a.addr()).unwrap();
+    }
+    (scout_h, scout_l)
 }
 
-pub fn replica_init(id: usize) -> Result<UdpSocket, io::Error> {
-    UdpSocket::bind(SocketAddr::from(([10, 0, 0, id as u8], REPLICA_PORT)))
+pub fn commander_init(acceptors: &Vec<Endpoint>) -> (NodeHandler<()>, NodeListener<()>) {
+    let (commander_h, commander_l) = node::split();
+    for a in acceptors.iter() {
+        commander_h.network().connect(Transport::Udp, a.addr()).unwrap();
+    }
+    (commander_h, commander_l)
 }
 
-pub async fn leader_init(id: usize) -> Result<tokio::net::UdpSocket, io::Error> {
-    tokio::net::UdpSocket::bind(SocketAddr::from(([10, 0, 0, id as u8], LEADER_PORT))).await
+pub fn client_init() -> (NodeHandler<()>, NodeListener<()>) {
+    let out = node::split::<()>();
+    // out.0
+    //     .network()
+    //     .listen(
+    //         Transport::Udp,
+    //         SocketAddr::from((LOOPBACK, CLIENT_PORT)),
+    //     )
+    //     .unwrap();
+    out
 }
 
-pub fn acceptor_init(id: usize) -> Result<UdpSocket, io::Error> {
-    UdpSocket::bind(SocketAddr::from(([10, 0, 0, id as u8], ACCEPTOR_PORT)))
+pub fn replica_init(id: usize) -> (NodeHandler<()>, NodeListener<()>) {
+    let out = node::split::<()>();
+    out.0
+        .network()
+        .listen(
+            Transport::Udp,
+            SocketAddr::from((LOOPBACK, REPLICA_PORT + id as u16)),
+        )
+        .unwrap();
+    // out.0
+    //     .network()
+    //     .listen(
+    //         Transport::Udp,
+    //         SocketAddr::from((LOOPBACK, REPLICA_CLIENT_PORT + id as u16)),
+    //     )
+    //     .unwrap();
+    out
 }
 
-pub fn get_all_leaders() -> Vec<SocketAddr> {
-    (1..LEADER_COUNT)
-        .map(|i| SocketAddr::from(([10, 0, 0, i], LEADER_PORT)))
+pub fn leader_init(id: usize) -> (NodeHandler<Agent>, NodeListener<Agent>) {
+    let out = node::split();
+    out.0
+        .network()
+        .listen(
+            Transport::Udp,
+            SocketAddr::from((LOOPBACK, LEADER_PORT + id as u16)),
+        )
+        .unwrap();
+    out
+}
+
+pub fn acceptor_init(id: usize) -> (NodeHandler<()>, NodeListener<()>) {
+    let out = node::split::<()>();
+    out.0
+        .network()
+        .listen(
+            Transport::Udp,
+            SocketAddr::from((LOOPBACK, ACCEPTOR_PORT + id as u16)),
+        )
+        .unwrap();
+    out
+}
+
+pub fn get_all_leaders<Y>(handler: NodeHandler<Y>) -> Vec<Endpoint> {
+    (0..LEADER_COUNT)
+        .map(|i| {
+            // let temp = node::split::<()>();
+            let out = handler
+                .network()
+                .connect(
+                    Transport::Udp,
+                    SocketAddr::from((LOOPBACK, LEADER_PORT + i as u16)),
+                )
+                .unwrap();
+            // dbg!(&out);
+            out.0
+        })
+        .collect()
+
+    // todo!()
+}
+
+pub fn get_all_replicas<Y>(handler: NodeHandler<Y>) -> Vec<Endpoint> {
+    (0..REPLICA_COUNT)
+        .map(|i| {
+            // SocketAddr::from(([10, 0, 0, i], REPLICA_PORT))
+            // let temp = node::split::<()>();
+            let out = handler
+                .network()
+                .connect(
+                    Transport::Udp,
+                    SocketAddr::from((LOOPBACK, REPLICA_PORT + i as u16)),
+                )
+                .unwrap();
+            // dbg!(&out);
+            out.0
+                
+        })
         .collect()
 }
 
-pub fn get_all_replicas() -> Vec<SocketAddr> {
-    (1..REPLICA_COUNT)
-        .map(|i| SocketAddr::from(([10, 0, 0, i], REPLICA_PORT)))
-        .collect()
-}
-
-pub fn get_all_acceptors() -> Vec<SocketAddr> {
-    (1..ACCEPTOR_COUNT)
-        .map(|i| SocketAddr::from(([10, 0, 0, i], ACCEPTOR_PORT)))
+pub fn get_all_acceptors<Y>(handler: NodeHandler<Y>) -> Vec<Endpoint> {
+    (0..ACCEPTOR_COUNT)
+        .map(|i| {
+            let out = handler
+                .network()
+                .connect(
+                    Transport::Udp,
+                    SocketAddr::from((LOOPBACK, ACCEPTOR_PORT + i as u16)),
+                )
+                .unwrap();
+            // dbg!(&out);
+            out.0
+        })
         .collect()
 }

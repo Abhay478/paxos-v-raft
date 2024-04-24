@@ -8,10 +8,9 @@ edition = "2021"
 [dependencies]
 hashbrown = "0.14.3"
 itertools = "0.12.0"
+message-io = "0.18.1"
 rand = "0.8.5"
 serde = "1.0.195"
 serde_derive = "1.0.195"
 serde_json = "1.0.111"
-socket2 = { version = "0.5.5", features = ["all"] }
 thread_tryjoin = "0.3.0"
-tokio = { version = "1.35.1", features = ["net", "rt", "rt-multi-thread", "macros"] }

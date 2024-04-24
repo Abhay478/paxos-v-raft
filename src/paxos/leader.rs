@@ -1,25 +1,22 @@
-use std::{
-    collections::HashMap,
-    future::Future,
-    net::SocketAddr,
-    sync::{
-        mpsc::{channel, Receiver, Sender},
-        Arc,
-    },
-    thread,
-};
+use std::{collections::HashMap, sync::Arc, thread, time::Duration};
 
-use tokio::net::UdpSocket;
+use message_io::{
+    network::{Endpoint, NetEvent},
+    node::{self, NodeEvent, NodeHandler, NodeListener},
+};
 
 use serde_json::to_vec;
 
+use crate::paxos::dir::commander_init;
+
 use super::{
-    dir::{get_all_acceptors, get_all_replicas},
+    dir::{get_all_acceptors, get_all_replicas, scout_init},
     Ballot, Message, Proposal,
 };
 
 /// 'Return type' of a Scout or Commander thread.
 /// Sent through a channel to the main thread.
+#[derive(Debug, Clone)]
 pub enum Agent {
     Committed,
     Adopted(Ballot, HashMap<usize, Vec<Proposal>>),
@@ -28,102 +25,192 @@ pub enum Agent {
 
 impl Agent {
     /// Call this in a separate thread
-    pub async fn init_commander(
+    pub fn init_commander(
         prop: Proposal,
-        acceptors: Arc<Vec<SocketAddr>>,
-        replicas: Arc<Vec<SocketAddr>>,
-        sock: Arc<UdpSocket>,
-        agent_tx: Arc<Sender<Agent>>,
+        acceptors: Arc<Vec<Endpoint>>,
+        replicas: Arc<Vec<Endpoint>>,
+        // sock: Arc<UdpSocket>,
+        handler: NodeHandler<()>,
+        listener: NodeListener<()>,
+        other_handler: NodeHandler<Agent>,
+        // agent_tx: Arc<Sender<Agent>>,
         lid: usize,
     ) {
+        // dbg!("Commander.");
         let mut waitfor = (*acceptors).clone();
         let msg = Message::Phase2a(lid, prop.clone());
-        // acceptors.iter().for_each( |acc| {tokio::spawn(async {
-        //     sock.send_to(&to_vec(&msg).unwrap(), acc).await.unwrap();
-        // });});
-        // FFS
 
         for acc in acceptors.iter() {
-            sock.send_to(&to_vec(&msg).unwrap(), acc).await.unwrap();
+            // sock.send_to(&to_vec(&msg).unwrap(), acc).await.unwrap();
+            handler.network().send(*acc, &to_vec(&msg).unwrap());
         }
 
-        loop {
-            let mut buf = vec![0; 1024];
-            let (len, addr) = sock.recv_from(&mut buf).await.unwrap();
-            let msg: Message = serde_json::from_slice(&buf[..len]).unwrap();
-            match msg {
-                Message::Phase2b(_back_lid, _acc_id, blt) => {
-                    if blt == prop.ballot {
-                        // Using retain coz remove wants the index.
-                        waitfor.retain(|x| *x != addr);
+        // loop {
+        listener.for_each(move |event| {
+            match event.network() {
+                NetEvent::Message(endpoint, message) => {
+                    let msg: Message = serde_json::from_slice(&message).unwrap();
+                    // dbg!(&msg);
+                    match msg {
+                        Message::Phase2b(_back_lid, _acc_id, blt) => {
+                            if blt == prop.ballot {
+                                // Using retain coz remove wants the index.
+                                waitfor.retain(|x| *x != endpoint);
 
-                        if waitfor.len() < acceptors.len() / 2 {
-                            // Majority
-                            let rep_msg = Message::Decision(prop.slot, prop.command.clone());
+                                if waitfor.len() < acceptors.len() / 2 {
+                                    // Majority
+                                    let rep_msg =
+                                        Message::Decision(prop.slot, prop.command.clone());
 
-                            for rep in replicas.iter() {
-                                sock.send_to(&to_vec(&rep_msg).unwrap(), rep).await.unwrap();
+                                    for rep in replicas.iter() {
+                                        // sock.send_to(&to_vec(&rep_msg).unwrap(), rep).await.unwrap();
+                                        other_handler.network().send(*rep, &to_vec(&rep_msg).unwrap());
+                                    }
+                                    // agent_tx.send(Self::Committed).unwrap();
+                                    other_handler.signals().send(Self::Committed);
+                                    return;
+                                }
+                            } else {
+                                // agent_tx.send(Self::Preempted(blt)).unwrap();
+                                other_handler.signals().send(Self::Preempted(blt));
+                                return;
                             }
-                            agent_tx.send(Self::Committed).unwrap();
-                            return;
                         }
-                    } else {
-                        agent_tx.send(Self::Preempted(blt)).unwrap();
-                        return;
+                        _ => {}
                     }
                 }
                 _ => {}
             }
+        });
+        /* let mut buf = vec![0; 1024];
+        let (len, addr) = sock.recv_from(&mut buf).await.unwrap();
+        let msg: Message = serde_json::from_slice(&buf[..len]).unwrap();
+        match msg {
+            Message::Phase2b(_back_lid, _acc_id, blt) => {
+                if blt == prop.ballot {
+                    // Using retain coz remove wants the index.
+                    waitfor.retain(|x| *x != addr);
+
+                    if waitfor.len() < acceptors.len() / 2 {
+                        // Majority
+                        let rep_msg = Message::Decision(prop.slot, prop.command.clone());
+
+                        for rep in replicas.iter() {
+                            sock.send_to(&to_vec(&rep_msg).unwrap(), rep).await.unwrap();
+                        }
+                        agent_tx.send(Self::Committed).unwrap();
+                        return;
+                    }
+                } else {
+                    agent_tx.send(Self::Preempted(blt)).unwrap();
+                    return;
+                }
+            }
+            _ => {}
         }
+         */
+        // }
     }
 
-    pub async fn init_scout(
+    pub fn init_scout(
         lid: usize,
-        ballot_rx: Receiver<Ballot>,
-        agent_tx: Arc<Sender<Agent>>,
-        acceptors: Arc<Vec<SocketAddr>>,
-        sock: Arc<UdpSocket>,
+        mut ballot: Ballot,
+        acceptors: Arc<Vec<Endpoint>>,
+        listener: NodeListener<Ballot>,
+        handler: NodeHandler<Ballot>,
+        other_handler: NodeHandler<Agent>, // communicate with leader.
     ) {
-        loop {
-            let ballot = ballot_rx.recv().unwrap();
-            let mut waitfor = (*acceptors).clone();
-            let msg = Message::Phase1a(lid, ballot);
+        let mut waitfor = (*acceptors).clone();
+        // loop {
+        // let mut ballot;
+        let msg = Message::Phase1a(lid, ballot);
 
-            for acc in acceptors.iter() {
-                sock.send_to(&to_vec(&msg).unwrap(), acc).await.unwrap();
-            }
+        for acc in acceptors.iter() {
+            // sock.send_to(&to_vec(&msg).unwrap(), acc).await.unwrap();
+            handler.network().send(*acc, &to_vec(&msg).unwrap());
+        }
 
-            let mut pvals = HashMap::<usize, Vec<Proposal>>::new();
+        let mut pvals = HashMap::<usize, Vec<Proposal>>::new();
 
-            loop {
-                let mut buf = vec![0; 1024];
-                let (len, addr) = sock.recv_from(&mut buf).await.unwrap();
-                let msg: Message = serde_json::from_slice(&buf[..len]).unwrap();
-                match msg {
-                    Message::Phase1b(_lid, _acc_id, blt, accepts) => {
-                        if blt == ballot {
-                            waitfor.retain(|x| *x != addr);
-                            accepts.iter().for_each(|acc| {
-                                if let Some(p) = pvals.get_mut(&acc.slot) {
-                                    p.push(acc.clone());
-                                } else {
-                                    pvals.insert(acc.slot, vec![acc.clone()]);
-                                }
-                            });
-
-                            if waitfor.len() < acceptors.len() / 2 {
-                                // Majority
-                                agent_tx.send(Self::Adopted(blt, pvals)).unwrap();
-                                break;
+        /* loop {
+            let mut buf = vec![0; 1024];
+            let (len, addr) = sock.recv_from(&mut buf).await.unwrap();
+            let msg: Message = serde_json::from_slice(&buf[..len]).unwrap();
+            match msg {
+                Message::Phase1b(_lid, _acc_id, blt, accepts) => {
+                    if blt == ballot {
+                        waitfor.retain(|x| *x != addr);
+                        accepts.iter().for_each(|acc| {
+                            if let Some(p) = pvals.get_mut(&acc.slot) {
+                                p.push(acc.clone());
+                            } else {
+                                pvals.insert(acc.slot, vec![acc.clone()]);
                             }
-                        } else {
-                            agent_tx.send(Self::Preempted(blt)).unwrap();
+                        });
+
+                        if waitfor.len() < acceptors.len() / 2 {
+                            // Majority
+                            agent_tx.send(Self::Adopted(blt, pvals)).unwrap();
+                            break;
+                        }
+                    } else {
+                        agent_tx.send(Self::Preempted(blt)).unwrap();
+                    }
+                }
+                _ => {}
+            }
+        } */
+        // }
+        
+        let _ = listener.for_each_async(move |event| {
+            match event {
+                NodeEvent::Network(u) => match u {
+                    NetEvent::Message(endpoint, message) => {
+                        let msg: Message = serde_json::from_slice(&message).unwrap();
+                        // dbg!(&msg);
+                        match msg {
+                            Message::Phase1b(_lid, _acc_id, blt, accepts) => {
+                                if blt == ballot {
+                                    // dbg!(&endpoint);
+                                    waitfor.retain(|x| x.addr() != endpoint.addr());
+                                    accepts.iter().for_each(|acc| {
+                                        if let Some(p) = pvals.get_mut(&acc.slot) {
+                                            p.push(acc.clone());
+                                        } else {
+                                            pvals.insert(acc.slot, vec![acc.clone()]);
+                                        }
+                                    });
+
+                                    // dbg!(&waitfor, &pvals, &acceptors);
+
+                                    if (waitfor.len() as f64) < acceptors.len() as f64 / 2.0 {
+                                        // Majority
+                                        // dbg!("Majority");
+                                        other_handler
+                                            .signals()
+                                            .send(Self::Adopted(blt, pvals.clone()));
+                                        return;
+                                    }
+                                } else {
+                                    other_handler.signals().send(Self::Preempted(blt));
+                                    return;
+                                }
+                            }
+                            _ => unreachable!()
                         }
                     }
                     _ => {}
+                },
+                NodeEvent::Signal(s) => {
+                    ballot = s;
+                    let msg = Message::Phase1a(lid, ballot);
+                    for acc in acceptors.iter() {
+                        // sock.send_to(&to_vec(&msg).unwrap(), acc).await.unwrap();
+                        handler.network().send(*acc, &to_vec(&msg).unwrap());
+                    }
                 }
             }
-        }
+        });
     }
 }
 
@@ -174,44 +261,28 @@ pub fn get_pmax(pvals: &HashMap<usize, Vec<Proposal>>) -> HashMap<usize, Proposa
         .collect::<HashMap<usize, Proposal>>()
 }
 
-/// This needs to be a separate function coz of Rust types. It's really just a block.
-fn async_block(
-    prop: Proposal,
-    acceptors: Arc<Vec<SocketAddr>>,
-    replicas: Arc<Vec<SocketAddr>>,
-    sock: Arc<UdpSocket>,
-    agent_tx: Arc<Sender<Agent>>,
-    lid: usize,
-) -> impl Future<Output = ()> {
-    async move { Agent::init_commander(prop, acceptors, replicas, sock, agent_tx, lid).await }
-}
-
 /// TODO: Add file read for lists.
-pub async fn listen(id: usize, sock: UdpSocket) {
-    let arc_sock = Arc::new(sock);
-
-    let acceptors = Arc::new(get_all_acceptors());
-    let replicas = Arc::new(get_all_replicas());
+pub fn listen(id: usize, handler: NodeHandler<Agent>, listener: NodeListener<Agent>) {
+    let acceptors = Arc::new(get_all_acceptors(handler.clone()));
+    thread::sleep(Duration::from_secs(2));
+    let replicas = Arc::new(get_all_replicas(handler.clone()));
 
     let mut leader = Leader::new(id);
-
-    let (ballot_tx, ballot_rx) = channel::<Ballot>();
-    let (agent_tx, agent_rx) = channel::<Agent>();
-
-    let agent_tx = Arc::new(agent_tx);
+    println!("Inited leader {}", id);
 
     let mut commanders = vec![];
-
-    let alt_sock = arc_sock.clone();
     let new_acc = acceptors.clone();
-    let new_tx = agent_tx.clone();
 
-    let _scout = thread::spawn(move || async move {
-        Agent::init_scout(leader.id, ballot_rx, new_tx, new_acc, alt_sock).await;
+    let (scout_h, scout_l) = scout_init(&acceptors);
+    let oh = handler.clone();
+    let sh = scout_h.clone();
+
+    let _scout = thread::spawn(move || {
+        Agent::init_scout(leader.id, leader.ballot, new_acc, scout_l, sh, oh);
     }); // Sus
 
-    // TODO: THERE ARE BUGS IN THIS LOOP. probably.
-    loop {
+    // TODO: message-io-ify this loop.
+    /* loop {
         // Anything we get from the agents. They communicate with the acceptors.
         if let Ok(out) = agent_rx.try_recv() {
             match out {
@@ -222,14 +293,14 @@ pub async fn listen(id: usize, sock: UdpSocket) {
 
                     // This is bad. Too many clones. That said, it is Arc, so maybe we can get away with it.
                     for (_s, p) in leader.proposals.iter() {
-                        let alt_sock = arc_sock.clone();
+                        // let alt_sock = arc_sock.clone();
                         let new_acc = acceptors.clone();
                         let new_rep = replicas.clone();
                         let new_tx = agent_tx.clone();
                         let q = p.clone();
 
                         commanders.push(thread::spawn(move || {
-                            async_block(q, new_acc, new_rep, alt_sock, new_tx, leader.id)
+                            async_block(q, new_acc, new_rep, listener, handler, new_tx, leader.id)
                         }));
                     }
 
@@ -283,5 +354,96 @@ pub async fn listen(id: usize, sock: UdpSocket) {
             }
         }
     }
+
+     */
+
+    let _ = listener.for_each_async(move |event| {
+        match event {
+            NodeEvent::Signal(s) => {
+                // dbg!(&s);
+                match s {
+                    Agent::Adopted(_blt, pvals) => {
+                        // leader.ballot.num = blt.num + 1;
+                        let pmax = get_pmax(&pvals);
+                        leader.update(pmax);
+
+                        // This is bad. Too many clones. That said, it is Arc, so maybe we can get away with it.
+                        for (_s, p) in leader.proposals.iter() {
+                            // let alt_sock = arc_sock.clone();
+                            let new_acc = acceptors.clone();
+                            let new_rep = replicas.clone();
+                            // let new_tx = agent_tx.clone();
+                            let q = p.clone();
+
+                            let (h, l) = commander_init(&acceptors);
+                            let oh = handler.clone();
+                            commanders.push(thread::spawn(move || {
+                                Agent::init_commander(q, new_acc, new_rep, h, l, oh, leader.id)
+                            }));
+                        }
+
+                        leader.active = true;
+                    }
+                    Agent::Preempted(blt) => {
+                        if blt > leader.ballot {
+                            leader.active = false;
+                            leader.ballot.num = blt.num + 1;
+                            // Pseudocode restarts the thread here. We just update the ballot. Message passing cheaper than spawning.
+                            scout_h.signals().send(leader.ballot);
+                        }
+                    }
+                    Agent::Committed => {} // Not given. WTF.
+                }
+            }
+            NodeEvent::Network(u) => match u {
+                NetEvent::Message(_endpoint, buf) => {
+                    let msg: Message = serde_json::from_slice(&buf).unwrap();
+                    dbg!(&msg);
+                    match msg {
+                        Message::Propose(slot, cmd) => {
+                            // if let Some(_) = leader.proposals.get(&slot) {
+                            //     // Proposal is lost here. Correctness check.
+                            //     return;
+                            // }
+
+                            let prop = Proposal {
+                                slot,
+                                ballot: leader.ballot,
+                                command: cmd,
+                            };
+                            leader.proposals.insert(slot, prop.clone());
+
+                            let new_acc = acceptors.clone();
+                            let new_rep = replicas.clone();
+                            // let new_tx = agent_tx.clone();
+                            let oh = handler.clone();
+                            if leader.active {
+                                let (h, l) = commander_init(&acceptors);
+                                commanders.push(thread::spawn(move || {
+                                    Agent::init_commander(
+                                        prop, new_acc, new_rep, h, l, oh, leader.id,
+                                    )
+                                }))
+                            }
+                        }
+                        Message::Terminate => {
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
+                NetEvent::Accepted(ep, _) => {
+                    println!("Leader {id} Accepted {ep}.");
+                }
+                NetEvent::Connected(ep, _) => {
+                    println!("Leader {id} Connected to {ep}.");
+                }
+                NetEvent::Disconnected(ep) => {
+                    println!("Leader {id} Disconnected from {ep}.");
+                }
+                // _ => {}
+            },
+        }
+    });
     // todo!()
 }

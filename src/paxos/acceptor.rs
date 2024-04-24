@@ -1,10 +1,10 @@
 #![allow(dead_code)]
-use std::{
-    net::UdpSocket,
-    // sync::{Arc, Mutex},
-};
 
 use itertools::Itertools;
+use message_io::{
+    network::NetEvent,
+    node::{NodeHandler, NodeListener},
+};
 use serde_json::{from_slice, to_vec};
 
 use crate::paxos::{Ballot, Message, Proposal};
@@ -24,17 +24,20 @@ struct Acceptor {
     pub accepted: Vec<Proposal>,
 
     /// This is us.
-    pub sock: UdpSocket,
+    // pub sock: UdpSocket,
+    // pub listener: NodeListener<()>,
+    pub handler: NodeHandler<()>,
     buf: Vec<u8>,
 }
 
 impl Acceptor {
-    pub fn new(id: usize, sock: UdpSocket) -> Acceptor {
+    pub fn new(id: usize, handler: NodeHandler<()>) -> Acceptor {
         Acceptor {
             id,
             ballot: Ballot::new(0, 0),
             accepted: vec![],
-            sock,
+            // listener,
+            handler,
             buf: vec![],
         }
     }
@@ -74,6 +77,7 @@ impl Acceptor {
 
     /// Mux
     fn handle(&mut self, req: Message) -> Message {
+        dbg!(&req);
         match req {
             Message::Phase1a(_num, ballot) => self.receive_p1(ballot),
             Message::Phase2a(lid, prop) => self.receive_p2(lid, prop),
@@ -84,18 +88,28 @@ impl Acceptor {
 
 /// This is the main loop for the acceptor.
 /// Acceptors are pretty dumb, so there's not much going on here.
-pub fn listen(id: usize, sock: UdpSocket) {
-    let mut q = Acceptor::new(id, sock);
-    let mut buf = vec![];
-    loop {
-        let (l, src) = q.sock.recv_from(&mut buf).unwrap();
+pub fn listen(id: usize, listener: NodeListener<()>, handler: NodeHandler<()>) {
+    let mut q = Acceptor::new(id, handler);
+    println!("Inited acceptor {id}.");
 
-        let res = if let Ok(req) = from_slice(&buf[..l]) {
-            to_vec(&q.handle(req)).unwrap()
-        } else {
-            "Invalid message.".as_bytes().to_vec()
-        };
-        q.sock.send_to(&res, src).unwrap();
-        // log.push(buf);
-    }
+    let _ = listener.for_each_async(move |event| match event.network() {
+        NetEvent::Message(endpoint, buf) => {
+            let res = if let Ok(req) = from_slice(&buf) {
+                to_vec(&q.handle(req)).unwrap()
+            } else {
+                "Invalid message.".as_bytes().to_vec()
+            };
+            q.handler.network().send(endpoint, &res);
+        }
+        NetEvent::Connected(ep, _) => {
+            println!("Acceptor {id} Connected to {ep}.");
+        }
+        NetEvent::Accepted(ep, _) => {
+            println!("Acceptor {id} Accepted {ep}.");
+        }
+        NetEvent::Disconnected(ep) => {
+            println!("Acceptor {id} Disconnected from {ep}.");
+        }
+        // _ => {}
+    });
 }

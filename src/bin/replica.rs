@@ -1,14 +1,14 @@
 //! Code for replica
-//! 
-//! 
+//!
+//!
 
-use std::env;
 use dc_project::paxos::{dir::replica_init, replica};
+use std::env;
 
 fn main() {
     let id = env::args().nth(1).unwrap().parse::<usize>().unwrap();
     println!("Replica {}", id);
 
-    let sock = replica_init(id).unwrap();
-    replica::listen(id, sock);
+    let sock = replica_init(id);
+    replica::listen(id, sock.1, sock.0);
 }
