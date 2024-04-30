@@ -41,13 +41,6 @@ pub fn commander_init(acceptors: &Vec<Endpoint>) -> (NodeHandler<()>, NodeListen
 
 pub fn client_init() -> (NodeHandler<()>, NodeListener<()>) {
     let out = node::split::<()>();
-    // out.0
-    //     .network()
-    //     .listen(
-    //         Transport::Udp,
-    //         SocketAddr::from((LOOPBACK, CLIENT_PORT)),
-    //     )
-    //     .unwrap();
     out
 }
 
@@ -60,13 +53,6 @@ pub fn replica_init(id: usize) -> (NodeHandler<()>, NodeListener<()>) {
             SocketAddr::from((LOOPBACK, REPLICA_PORT + id as u16)),
         )
         .unwrap();
-    // out.0
-    //     .network()
-    //     .listen(
-    //         Transport::Udp,
-    //         SocketAddr::from((LOOPBACK, REPLICA_CLIENT_PORT + id as u16)),
-    //     )
-    //     .unwrap();
     out
 }
 

@@ -1,4 +1,9 @@
-// use std::thread;
+//! Run with 
+//! ```sh
+//! cargo r --bin paxos_threads
+//! ```
+//! 
+//! in the root directory of the project.
 
 use std::{thread, time::Duration};
 
@@ -13,7 +18,6 @@ use dc_project::{
     },
     Params,
 };
-use message_io::network::Transport;
 use rand::seq::SliceRandom;
 use serde_json::to_vec;
 // use serde_json::to_vec;
@@ -54,7 +58,6 @@ fn main() {
     let u = rand::distributions::Uniform::from(0.0..1.0);
 
     let rep = reps.choose(&mut rand::thread_rng()).unwrap();
-    let _ = sock.0.network().connect(Transport::FramedTcp, rep.addr());
     for i in 0..params.k {
         let val = rand::random::<u64>();
         let msg = Message::Request(Command {

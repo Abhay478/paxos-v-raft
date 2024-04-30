@@ -6,7 +6,7 @@ use rand::{
 };
 use serde::{Deserialize, Serialize};
 
-const LOOPBACK: [u8; 4] = [127, 0, 0, 1];
+pub const LOOPBACK: [u8; 4] = [127, 0, 0, 1];
 
 pub mod paxos;
 pub mod raft;

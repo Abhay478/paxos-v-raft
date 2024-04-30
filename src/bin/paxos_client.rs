@@ -3,8 +3,6 @@
 //! Thinking each client produces a random value at random intervals and sends it to the replica.
 //!
 //! Which replica? Designated replica, random replica, or all replicas? RANDOM REPLICA.
-//!
-//! Obviously, the server side of replica should be same for paxos and raft.
 
 use std::env;
 
@@ -19,7 +17,7 @@ use rand::seq::SliceRandom;
 use serde_json::to_vec;
 
 /// ```sh
-/// cargo run --bin client -- (client_id)
+/// cargo run --bin paxos_client -- (client_id)
 /// ```
 ///
 /// Right now only written for Paxos.
@@ -38,13 +36,9 @@ fn main() {
             op_id: i,
             op: val.to_string(),
         });
+        dbg!(&msg);
         handler.network().send(*rep, &to_vec(&msg).unwrap());
         params.sleep(u, &mut rand::thread_rng());
     }
-    // sock.send_to(&to_vec(&Message::Terminate).unwrap(), rep);
-    // handler
-    // .network()
-    // .send(*rep, &to_vec(&Message::Terminate).unwrap());
-    // todo!()
     println!("Done.");
 }

@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 // use self::server::{Campaign, Replicate};
 
-mod dir;
-mod server;
+pub mod dir;
+pub mod server;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Command {
@@ -20,7 +20,7 @@ pub struct Command {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Log {
     term: usize,
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -31,7 +31,7 @@ pub struct Reply {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum Message {
+pub enum Message {
     Request(Command),
     Response(Command),
     Heartbeat(Replicate),

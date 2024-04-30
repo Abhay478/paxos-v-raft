@@ -14,8 +14,6 @@ use super::*;
 
 const WINDOW: usize = 32;
 
-
-
 /// This can be something as simple as
 /// ```
 /// |q: ReplicaState| (q, Ok(""))
