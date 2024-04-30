@@ -22,7 +22,6 @@ fn main() {
     let params = Params::new();
     let sock = client_init();
     let reps = get_all_replicas(sock.0.clone());
-    
 
     let mut acc_handles = vec![];
     for i in 0..ACCEPTOR_COUNT {
@@ -49,11 +48,11 @@ fn main() {
             replica::listen(i.into(), sock.1, sock.0);
         }));
     }
-    
+
     thread::sleep(Duration::from_secs(1));
 
     let u = rand::distributions::Uniform::from(0.0..1.0);
-    
+
     let rep = reps.choose(&mut rand::thread_rng()).unwrap();
     let _ = sock.0.network().connect(Transport::FramedTcp, rep.addr());
     for i in 0..params.k {
@@ -73,12 +72,11 @@ fn main() {
 
     for handle in lea_handles {
         handle.join().unwrap();
-    }   
+    }
 
     for handle in rep_handles {
         handle.join().unwrap();
     }
-
 }
 
 // fn main() {

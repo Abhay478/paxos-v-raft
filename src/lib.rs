@@ -4,6 +4,9 @@ use rand::{
     distributions::{Distribution, Uniform},
     rngs::ThreadRng,
 };
+use serde::{Deserialize, Serialize};
+
+const LOOPBACK: [u8; 4] = [127, 0, 0, 1];
 
 pub mod paxos;
 pub mod raft;
@@ -31,8 +34,24 @@ impl Params {
         }
     }
 
+    pub fn get_delay(u: Uniform<f64>, rng: &mut ThreadRng, l: f64) -> Duration {
+        let ts = -(u.sample(rng) as f64).ln() * l;
+        Duration::from_millis(ts as u64)
+    }
+
     pub fn sleep(&self, u: Uniform<f64>, rng: &mut ThreadRng) {
-        let ts = -(u.sample(rng) as f64).ln() * self.l;
-        thread::sleep(Duration::from_millis(ts as u64));
+        thread::sleep(Self::get_delay(u, rng, self.l));
+    }
+}
+
+/// Right now this is just a `usize`, but it can really be anything. The rest of the code is general enough.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default, Copy)]
+pub struct ReplicaState {
+    n: usize,
+}
+
+impl ReplicaState {
+    pub fn triv(s: String) -> impl Fn(&ReplicaState) -> (ReplicaState, Result<String, String>) {
+        move |q| (*q, Ok(s.clone()))
     }
 }

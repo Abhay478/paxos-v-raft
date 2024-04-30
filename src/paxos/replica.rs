@@ -1,11 +1,12 @@
 #![allow(dead_code)]
+use crate::ReplicaState;
+
 use self::dir::get_all_leaders;
 use hashbrown::HashMap;
 use message_io::{
     network::{Endpoint, NetEvent},
     node::{NodeHandler, NodeListener},
 };
-use serde_derive::{Deserialize, Serialize};
 use serde_json::{from_slice, to_vec}; // Might have to change this to bincode or a custom impl.
 use std::collections::BTreeMap;
 
@@ -13,17 +14,7 @@ use super::*;
 
 const WINDOW: usize = 32;
 
-/// Right now this is just a `usize`, but it can really be anything. The rest of the code is general enough.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Default, Copy)]
-pub struct ReplicaState {
-    n: usize,
-}
 
-impl ReplicaState {
-    pub fn triv(s: String) -> impl Fn(&ReplicaState) -> (ReplicaState, Result<String, String>) {
-        move |q| (*q, Ok(s.clone()))
-    }
-}
 
 /// This can be something as simple as
 /// ```
@@ -136,14 +127,13 @@ impl Replica {
             // let _un = self.lock.lock().unwrap();
             self.state = state;
             self.slot_out += 1;
-            
         }
         // dbg!("PERFORM");
 
         if let Some(addr) = addr {
             // TODO: Change the contents of Message::Response, maybe. Don't think String is enough.
             let msg = Message::Response(op.op_id, "Hello there".to_string(), res);
-    
+
             let buf = to_vec(&msg).unwrap();
             // self.sock.send_to(&buf, addr).unwrap();
             self.handler.network().send(*addr, &buf);
@@ -155,37 +145,6 @@ impl Replica {
 pub fn listen(id: usize, listener: NodeListener<()>, handler: NodeHandler<()>) {
     let leaders = get_all_leaders(handler.clone());
     let mut rep = Replica::new(id, leaders, handler);
-    /*     loop {
-           let mut buf = vec![];
-           let (l, src) = rep.sock.recv_from(&mut buf).unwrap();
-
-           // Verify that only **ONE** message is received.
-           let msg = from_slice::<Message>(&buf[..l]).unwrap();
-           match msg {
-               Message::Request(c) => {
-                   let c = c.clone();
-                   let _ = rep.clients.try_insert(c.client_id, src);
-                   rep.requests.push(c);
-               }
-               Message::Decision(slot, command) => {
-                   // Accept the consensus.
-                   rep.decisions.insert(slot, command);
-                   while let Some(c1) = rep.decisions.get(&rep.slot_out) {
-                       if let Some(c2) = rep.proposals.remove(&rep.slot_out) {
-                           if c2 != *c1 {
-                               rep.requests.push(c2);
-                           }
-                       }
-
-                       // Actually do the thing.
-                       rep.perform(c1.clone()); // GAH, CLONES!
-                   }
-               }
-               _ => unreachable!(), // It had better be, damn it.
-           }
-           rep.propose();
-       }
-    */
     println!("Inited replica {id}.");
     let _ = listener.for_each_async(move |event| match event.network() {
         NetEvent::Message(endpoint, buf) => {

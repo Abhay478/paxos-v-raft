@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc, thread, time::Duration};
 
 use message_io::{
     network::{Endpoint, NetEvent},
-    node::{self, NodeEvent, NodeHandler, NodeListener},
+    node::{NodeEvent, NodeHandler, NodeListener},
 };
 
 use serde_json::to_vec;
@@ -64,7 +64,9 @@ impl Agent {
 
                                     for rep in replicas.iter() {
                                         // sock.send_to(&to_vec(&rep_msg).unwrap(), rep).await.unwrap();
-                                        other_handler.network().send(*rep, &to_vec(&rep_msg).unwrap());
+                                        other_handler
+                                            .network()
+                                            .send(*rep, &to_vec(&rep_msg).unwrap());
                                     }
                                     // agent_tx.send(Self::Committed).unwrap();
                                     other_handler.signals().send(Self::Committed);
@@ -161,7 +163,7 @@ impl Agent {
             }
         } */
         // }
-        
+
         let _ = listener.for_each_async(move |event| {
             match event {
                 NodeEvent::Network(u) => match u {
@@ -196,7 +198,7 @@ impl Agent {
                                     return;
                                 }
                             }
-                            _ => unreachable!()
+                            _ => unreachable!(),
                         }
                     }
                     _ => {}
@@ -281,82 +283,6 @@ pub fn listen(id: usize, handler: NodeHandler<Agent>, listener: NodeListener<Age
         Agent::init_scout(leader.id, leader.ballot, new_acc, scout_l, sh, oh);
     }); // Sus
 
-    // TODO: message-io-ify this loop.
-    /* loop {
-        // Anything we get from the agents. They communicate with the acceptors.
-        if let Ok(out) = agent_rx.try_recv() {
-            match out {
-                Agent::Adopted(blt, pvals) => {
-                    leader.ballot.num = blt.num + 1;
-                    let pmax = get_pmax(&pvals);
-                    leader.update(pmax);
-
-                    // This is bad. Too many clones. That said, it is Arc, so maybe we can get away with it.
-                    for (_s, p) in leader.proposals.iter() {
-                        // let alt_sock = arc_sock.clone();
-                        let new_acc = acceptors.clone();
-                        let new_rep = replicas.clone();
-                        let new_tx = agent_tx.clone();
-                        let q = p.clone();
-
-                        commanders.push(thread::spawn(move || {
-                            async_block(q, new_acc, new_rep, listener, handler, new_tx, leader.id)
-                        }));
-                    }
-
-                    leader.active = true;
-                }
-                Agent::Preempted(blt) => {
-                    if blt > leader.ballot {
-                        leader.active = false;
-                        leader.ballot.num = blt.num + 1;
-                        // Pseudocode restarts the thread here. We just update the ballot. Message passing cheaper than spawning.
-                        ballot_tx.send(leader.ballot).unwrap();
-                    }
-                }
-                Agent::Committed => {} // Not given. WTF.
-            }
-        }
-
-        // Anything we get from the replicas.
-        let mut buf = vec![0; 1024];
-        if let Ok((len, _addr)) = arc_sock.recv_from(&mut buf).await {
-            let alt_sock = arc_sock.clone(); // We need a new one.
-            let msg: Message = serde_json::from_slice(&buf[..len]).unwrap();
-
-            match msg {
-                Message::Propose(slot, cmd) => {
-                    if let Some(_) = leader.proposals.get(&slot) {
-                        // Proposal is lost here. Correctness check.
-                        continue;
-                    }
-
-                    let prop = Proposal {
-                        slot,
-                        ballot: leader.ballot,
-                        command: cmd,
-                    };
-                    leader.proposals.insert(slot, prop.clone());
-
-                    let new_acc = acceptors.clone();
-                    let new_rep = replicas.clone();
-                    let new_tx = agent_tx.clone();
-                    if leader.active {
-                        commanders.push(thread::spawn(move || {
-                            async_block(prop, new_acc, new_rep, alt_sock, new_tx, leader.id)
-                        }))
-                    }
-                }
-                Message::Terminate => {
-                    break;
-                }
-                _ => {}
-            }
-        }
-    }
-
-     */
-
     let _ = listener.for_each_async(move |event| {
         match event {
             NodeEvent::Signal(s) => {
@@ -440,8 +366,7 @@ pub fn listen(id: usize, handler: NodeHandler<Agent>, listener: NodeListener<Age
                 }
                 NetEvent::Disconnected(ep) => {
                     println!("Leader {id} Disconnected from {ep}.");
-                }
-                // _ => {}
+                } // _ => {}
             },
         }
     });

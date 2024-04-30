@@ -5,6 +5,8 @@ use message_io::{
     node::{self, NodeHandler, NodeListener},
 };
 
+use crate::LOOPBACK;
+
 use super::{leader::Agent, Ballot};
 
 pub const LEADER_PORT: u16 = 4000;
@@ -18,8 +20,6 @@ pub const LEADER_COUNT: u8 = 1;
 pub const REPLICA_COUNT: u8 = 3;
 pub const ACCEPTOR_COUNT: u8 = 3;
 
-const LOOPBACK: [u8; 4] = [127, 0, 0, 1];
-
 pub fn scout_init(acceptors: &Vec<Endpoint>) -> (NodeHandler<Ballot>, NodeListener<Ballot>) {
     let (scout_h, scout_l) = node::split();
     for a in acceptors.iter() {
@@ -31,7 +31,10 @@ pub fn scout_init(acceptors: &Vec<Endpoint>) -> (NodeHandler<Ballot>, NodeListen
 pub fn commander_init(acceptors: &Vec<Endpoint>) -> (NodeHandler<()>, NodeListener<()>) {
     let (commander_h, commander_l) = node::split();
     for a in acceptors.iter() {
-        commander_h.network().connect(Transport::Udp, a.addr()).unwrap();
+        commander_h
+            .network()
+            .connect(Transport::Udp, a.addr())
+            .unwrap();
     }
     (commander_h, commander_l)
 }
@@ -124,7 +127,6 @@ pub fn get_all_replicas<Y>(handler: NodeHandler<Y>) -> Vec<Endpoint> {
                 .unwrap();
             // dbg!(&out);
             out.0
-                
         })
         .collect()
 }

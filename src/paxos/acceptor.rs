@@ -20,7 +20,6 @@ struct Acceptor {
     pub ballot: Ballot,
 
     /// All the stuff so far.
-    /// TODO: Should this be a map?
     pub accepted: Vec<Proposal>,
 
     /// This is us.
@@ -109,7 +108,6 @@ pub fn listen(id: usize, listener: NodeListener<()>, handler: NodeHandler<()>) {
         }
         NetEvent::Disconnected(ep) => {
             println!("Acceptor {id} Disconnected from {ep}.");
-        }
-        // _ => {}
+        } // _ => {}
     });
 }
